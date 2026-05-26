@@ -3,7 +3,7 @@ import torch
 
 class CategoryClassifierService:
     def __init__(self):
-        self.model = SentenceTransformer("paraphrase-multilingual-mpnet-base-v2")
+        self.model = SentenceTransformer("hiiamsid/sentence_similarity_spanish_es")
 
         self.semantic_map = {
             "Acequias y Drenajes": [
