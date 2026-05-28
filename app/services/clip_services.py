@@ -124,6 +124,8 @@ class ClipService:
         
         with torch.no_grad():
             image_features = self.model.get_image_features(**inputs)
+            if hasattr(image_features, 'pooler_output'):
+                image_features = image_features.pooler_output
             
         # Normalizamos los vectores para comparar
         image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)

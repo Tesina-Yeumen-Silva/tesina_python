@@ -2,8 +2,8 @@
 import json
 
 from app.config.prisma_db import db
-from datetime import datetime, timedelta
-from config.logger import logger
+from datetime import datetime, timedelta, timezone
+from app.config.logger import logger
 
 class ReportRepository:
     
@@ -18,24 +18,24 @@ class ReportRepository:
                        ROW_NUMBER() OVER(PARTITION BY rh."reportId" ORDER BY rh."createdAt" DESC) as rn
                 FROM "ReportHistory" rh
                 JOIN "ReportState" rs ON rh."stateId" = rs.id
-                WHERE rs."deletedAt" IS NULL 
+                WHERE rs."deletedAt" IS NULL
             )
             SELECT r.id, r.address, r.latitude, r.longitude, r.description, r."imageUrl", r."categoryId", r."userId"
             FROM "Report" r
             JOIN UltimoEstado ue ON r.id = ue."reportId"
             WHERE ue.rn = 1 
               AND ue.estado_actual = $1
-              AND r."deletedAt" IS NULL
+              AND r."deletedAt" IS NULL 
         """
-        # query_raw devuelve una lista de diccionarios puros
         return await db.query_raw(sql_query, pendiente_state_name)
-    
+
     async def get_recent_reports_by_category(self, category_id: int, exclude_report_id: int, days: int = 15) -> list:
         """
         Busca reportes activos de la misma categoría de los últimos X días.
         Excluye resueltos, rechazados, duplicados y reportes borrados lógicamente.
         """
-        date_threshold = datetime.now(datetime.timezone.utc) - timedelta(days=days)
+        date_threshold = datetime.utcnow() - timedelta(days=days)
+        date_threshold_str = date_threshold.isoformat()
 
         sql_query = """
             WITH UltimoEstado AS (
@@ -50,12 +50,12 @@ class ReportRepository:
             JOIN UltimoEstado ue ON r.id = ue."reportId"
             WHERE r."categoryId" = $1
               AND r.id != $2
-              AND r."createdAt" >= $3
+              AND r."createdAt" >= CAST($3 AS TIMESTAMP)
               AND ue.rn = 1
               AND ue.estado_actual NOT IN ('Resuelto', 'Rechazado', 'Duplicado')
               AND r."deletedAt" IS NULL 
         """
-        return await db.query_raw(sql_query, category_id, exclude_report_id, date_threshold)
+        return await db.query_raw(sql_query, category_id, exclude_report_id, date_threshold_str)
 
     async def get_state_id_by_name(self, state_name: str) -> int:
         state = await db.reportstate.find_unique(where={"name": state_name})
@@ -106,6 +106,6 @@ class ReportRepository:
         payload_json = json.dumps(payload)
 
         # 3. Disparar el evento de forma SEGURA.
-        await db.query_raw('SELECT pg_notify($1, $2)', 'report_updates', payload_json)
+        await db.query_raw('SELECT pg_notify($1, $2)::text', 'report_updates', payload_json)
         
-        logger.info(f"📢 Notificación enviada a Node -> Reporte {report_id}: {state_name}")
+        logger.info(f"Notificación enviada a Node -> Reporte {report_id}: {state_name}")

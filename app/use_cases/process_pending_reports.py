@@ -3,7 +3,7 @@ import urllib.request
 from io import BytesIO
 from PIL import Image
 from app.repositories import REPORT_STATES 
-from config.logger import logger
+from app.config.logger import logger
 
 class ProcessPendingReportsUseCase:
     def __init__(self, report_repo, clip_service, text_service, decision_service, clustering_service):
@@ -103,7 +103,7 @@ class ProcessPendingReportsUseCase:
                         
                         # CLIP compara las similitudes visuales de ambas fotos
                         similitud = self.clip_service.compare_images(image, image_hist)
-                        logger.info(f"👁️ Similitud visual calculada: {similitud:.2f}")
+                        logger.info(f"Similitud visual calculada: {similitud:.2f}")
                         
                         # Si superan el 75% de similitud, confirmamos el duplicado real
                         if similitud >= 0.75:

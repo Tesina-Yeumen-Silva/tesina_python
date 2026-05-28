@@ -9,7 +9,7 @@ from app.use_cases.process_pending_reports import ProcessPendingReportsUseCase
 
 # 🚀 NUEVO: Importamos nuestro logger
 from app.config.logger import logger
-from python_backend.app.services.clustering_service import ClusteringService 
+from app.services.clustering_service import ClusteringService 
 
 async def main():
     logger.info("=======================================================")
