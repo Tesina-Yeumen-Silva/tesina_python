@@ -29,6 +29,18 @@ class ReportRepository:
         """
         return await db.query_raw(sql_query, pendiente_state_name)
 
+    async def get_report_by_id(self, report_id: int) -> dict | None:
+        """
+        Busca un reporte específico por su ID.
+        """
+        sql_query = """
+            SELECT id, address, latitude, longitude, description, "imageUrl", "categoryId", "userId"
+            FROM "Report"
+            WHERE id = $1 AND "deletedAt" IS NULL
+        """
+        results = await db.query_raw(sql_query, report_id)
+        return results[0] if results else None
+
     async def get_recent_reports_by_category(self, category_id: int, exclude_report_id: int, days: int = 15) -> list:
         """
         Busca reportes activos de la misma categoría de los últimos X días.
@@ -86,7 +98,7 @@ class ReportRepository:
 
     async def add_history_entry_and_notify(self, report_id: int, state_id: int, state_name: str, observation: str):
         """
-        Guarda el evento en el historial y notifica instantáneamente a Node.js
+        Guarda el evento en el historial y notifica instantáneamente a Node.js a través de RabbitMQ
         """
         # 1. Guardar en la base de datos
         await db.reporthistory.create(
@@ -97,15 +109,9 @@ class ReportRepository:
             }
         )
 
-        # 2. Formato de los datos
-        payload = {
-            "reportId": report_id,
-            "nuevoEstado": state_name,
-            "mensaje": observation
-        }
-        payload_json = json.dumps(payload)
-
-        # 3. Disparar el evento de forma SEGURA.
-        await db.query_raw('SELECT pg_notify($1, $2)::text', 'report_updates', payload_json)
-        
-        logger.info(f"Notificación enviada a Node -> Reporte {report_id}: {state_name}")
+        # 2. Notificar a Node.js a través de RabbitMQ
+        try:
+            from app.config.rabbitmq import rabbitmq_manager
+            await rabbitmq_manager.publish_result(report_id, state_name)
+        except Exception as e:
+            logger.error(f"Error al enviar notificación a RabbitMQ para el reporte {report_id}: {e}", exc_info=True)
