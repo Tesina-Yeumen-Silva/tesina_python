@@ -1,7 +1,7 @@
 # app/repositories/report_repository.py
 import json
 
-from app.config.prisma_db import db
+from app.config.db import db
 from datetime import datetime, timedelta, timezone
 from app.config.logger import logger
 
@@ -47,7 +47,6 @@ class ReportRepository:
         Excluye resueltos, rechazados, duplicados y reportes borrados lógicamente.
         """
         date_threshold = datetime.utcnow() - timedelta(days=days)
-        date_threshold_str = date_threshold.isoformat()
 
         sql_query = """
             WITH UltimoEstado AS (
@@ -62,52 +61,42 @@ class ReportRepository:
             JOIN UltimoEstado ue ON r.id = ue."reportId"
             WHERE r."categoryId" = $1
               AND r.id != $2
-              AND r."createdAt" >= CAST($3 AS TIMESTAMP)
+              AND r."createdAt" >= $3
               AND ue.rn = 1
               AND ue.estado_actual NOT IN ('Resuelto', 'Rechazado', 'Duplicado')
               AND r."deletedAt" IS NULL 
         """
-        return await db.query_raw(sql_query, category_id, exclude_report_id, date_threshold_str)
+        return await db.query_raw(sql_query, category_id, exclude_report_id, date_threshold)
 
     async def get_state_id_by_name(self, state_name: str) -> int:
-        state = await db.reportstate.find_unique(where={"name": state_name})
-        if not state:
+        sql = 'SELECT id FROM "ReportState" WHERE name = $1 AND "deletedAt" IS NULL'
+        results = await db.query_raw(sql, state_name)
+        if not results:
             raise ValueError(f"El estado '{state_name}' no existe en la base de datos.")
-        return state.id
+        return results[0]["id"]
 
     async def get_category_id_by_name(self, category_name: str) -> int:
-        category = await db.reportcategory.find_unique(where={"name": category_name})
-        if not category:
+        sql = 'SELECT id FROM "ReportCategory" WHERE name = $1 AND "deletedAt" IS NULL'
+        results = await db.query_raw(sql, category_name)
+        if not results:
             raise ValueError(f"La categoría '{category_name}' no existe en la base de datos.")
-        return category.id
+        return results[0]["id"]
 
     async def update_report_category(self, report_id: int, category_id: int):
-        await db.report.update(
-            where={"id": report_id},
-            data={"categoryId": category_id}
-        )
+        sql = 'UPDATE "Report" SET "categoryId" = $2 WHERE id = $1'
+        await db.execute_raw(sql, report_id, category_id)
 
     async def add_history_entry(self, report_id: int, state_id: int, observation: str):
-        await db.reporthistory.create(
-            data={
-                "reportId": report_id,
-                "stateId": state_id,
-                "observation": observation
-            }
-        )
+        sql = 'INSERT INTO "ReportHistory" ("reportId", "stateId", "observation", "createdAt") VALUES ($1, $2, $3, NOW())'
+        await db.execute_raw(sql, report_id, state_id, observation)
 
     async def add_history_entry_and_notify(self, report_id: int, state_id: int, state_name: str, observation: str):
         """
         Guarda el evento en el historial y notifica instantáneamente a Node.js a través de RabbitMQ
         """
         # 1. Guardar en la base de datos
-        await db.reporthistory.create(
-            data={
-                "reportId": report_id,
-                "stateId": state_id,
-                "observation": observation
-            }
-        )
+        sql = 'INSERT INTO "ReportHistory" ("reportId", "stateId", "observation", "createdAt") VALUES ($1, $2, $3, NOW())'
+        await db.execute_raw(sql, report_id, state_id, observation)
 
         # 2. Notificar a Node.js a través de RabbitMQ
         try:

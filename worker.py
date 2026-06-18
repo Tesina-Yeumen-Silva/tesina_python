@@ -2,7 +2,7 @@
 import asyncio
 import json
 import aio_pika
-from app.config.prisma_db import connect_db, disconnect_db
+from app.config.db import connect_db, disconnect_db
 from app.config.rabbitmq import rabbitmq_manager
 from app.repositories.report_repository import ReportRepository
 from app.services.clip_services import ClipService
