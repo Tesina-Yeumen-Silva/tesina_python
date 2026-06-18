@@ -1,0 +1,48 @@
+# Virtual environment (se instala en la build del contenedor)
+.venv
+venv
+env
+ENV
+
+# Python cache y compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints
+
+# Variables de entorno locales (seguridad)
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Editores y Sistema Operativo
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Logs y archivos temporales
+*.log
+logs/
+tmp/
+.tmp/
+
+# Testing y métricas
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.gcov
