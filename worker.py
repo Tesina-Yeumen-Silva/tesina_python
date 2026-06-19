@@ -1,6 +1,7 @@
 # worker.py
 import asyncio
 import json
+import os
 import aio_pika
 from app.config.db import connect_db, disconnect_db
 from app.config.rabbitmq import rabbitmq_manager
@@ -17,9 +18,11 @@ async def main():
     logger.info("INICIANDO MOTOR ASÍNCRONO DE IA CON RABBITMQ: MENDOZA REPORTA")
     logger.info("=======================================================")
     
+    # Conexiones iniciales a infraestructura
     await connect_db()
     await rabbitmq_manager.connect()
 
+    # Inicialización de servicios core de IA y negocio
     clip_service = ClipService()
     text_service = CategoryClassifierService()
     decision_service = ReportDecisionService(text_threshold=0.45)
@@ -28,40 +31,45 @@ async def main():
     repo = ReportRepository()
     
     use_case = ProcessPendingReportsUseCase(
-        repo, clip_service, text_service, decision_service , clustering_service
+        repo, clip_service, text_service, decision_service, clustering_service
     )
 
-    # Declarar e iniciar escucha en la cola
-    queue_name = "reports.validate"
+    queue_name = os.getenv("RABBITMQ_QUEUE_VALIDATE", "reports.validate")
     queue = await rabbitmq_manager.channel.declare_queue(queue_name, durable=True)
+    
     await rabbitmq_manager.channel.set_qos(prefetch_count=1)
 
     logger.info(f"Sistema listo y escuchando reportes entrantes en la cola '{queue_name}'...")
 
     async def on_message(message: aio_pika.IncomingMessage):
-        async with message.process():
-            try:
-                body = json.loads(message.body.decode())
-                report_id = body.get("reportId")
-                action = body.get("action")
-                
-                logger.info(f"Mensaje recibido de RabbitMQ: {body}")
-                
-                if action == "validate_report" and report_id is not None:
-                    await use_case.execute(report_id)
-                else:
-                    logger.warning(f"Acción o ID de reporte no válido recibido: {body}")
-            except Exception as e:
-                logger.error(f"Error procesando mensaje de la cola: {e}", exc_info=True)
+        try:
+            body = json.loads(message.body.decode())
+            report_id = body.get("reportId")
+            action = body.get("action")
+            
+            logger.info(f"Mensaje recibido de RabbitMQ: {body}")
+            
+            if action == "validate_report" and report_id is not None:
+                await message.ack()
+                await use_case.execute(report_id)
+            else:
+                logger.warning(f"Acción o ID de reporte no válido recibido: {body}")
+                await message.ack()
+
+        except json.JSONDecodeError:
+            logger.error("Malformación en el JSON recibido de la cola. Descartando mensaje.")
+            await message.reject(requeue=False)
+
+        except Exception as e:
+            logger.error(f"Error crítico procesando mensaje de la cola: {e}", exc_info=True)
+            await message.nack(requeue=True)
 
     try:
-        # Comenzar a consumir
         await queue.consume(on_message)
         
-        # Mantener el proceso vivo indefinidamente
-        while True:
-            await asyncio.sleep(3600)
-            
+        stop_event = asyncio.Future()
+        await stop_event
+        
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Deteniendo servicio de IA de forma segura (interrupción manual)...")
     finally:
