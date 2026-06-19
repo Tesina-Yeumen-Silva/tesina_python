@@ -1,10 +1,12 @@
-from sentence_transformers import SentenceTransformer, util
 import torch
+from sentence_transformers import SentenceTransformer, util
 
 class CategoryClassifierService:
-    def __init__(self):
-        self.model = SentenceTransformer("hiiamsid/sentence_similarity_spanish_es")
-
+    def __init__(self, threshold: float = 0.4):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = SentenceTransformer("hiiamsid/sentence_similarity_spanish_es", device=self.device)
+        self.threshold = threshold
+        
         self.semantic_map = {
             "Acequias y Drenajes": [
                 "acequia tapada, obstruida o con agua estancada",
@@ -70,31 +72,39 @@ class CategoryClassifierService:
                 "rotura de caño de agua potable en la calzada o vereda",
             ],
         }
-
+        
         self._build_index()
 
     def _build_index(self):
-        self._index = {}
+        """Convierte todas las frases en vectores para búsqueda rápida."""
+        self.corpus_embeddings = []
+        self.mapping = [] 
+        
         for category, phrases in self.semantic_map.items():
-            self._index[category] = self.model.encode(
-                phrases,
-                convert_to_tensor=True,
-                normalize_embeddings=True,
-            )
+            embs = self.model.encode(phrases, convert_to_tensor=True, normalize_embeddings=True)
+            self.corpus_embeddings.append(embs)
+            self.mapping.extend([category] * len(phrases))
+            
+        self.corpus_embeddings = torch.cat(self.corpus_embeddings)
 
-    def classify_text(self, description: str, categories: list[str]) -> dict:
-        query_embedding = self.model.encode(
-            description,
-            convert_to_tensor=True,
-            normalize_embeddings=True,
-        )
+    def classify_text(self, description: str) -> dict:
+        """Compara la descripción con el índice y retorna los puntajes por categoría."""
+        query_embedding = self.model.encode(description, convert_to_tensor=True, normalize_embeddings=True)
+        
+        hits = util.semantic_search(query_embedding, self.corpus_embeddings, top_k=10)[0]
+        
+        scores = {cat: [] for cat in self.semantic_map.keys()}
+        for hit in hits:
+            category = self.mapping[hit['corpus_id']]
+            scores[category].append(hit['score'])
+            
+        return {cat: (sum(s)/len(s) if s else 0.0) for cat, s in scores.items()}
 
-        scores = {}
-        for category in categories:
-            if category not in self._index:
-                continue
-            sims = util.dot_score(query_embedding, self._index[category])[0]
-            top_k = torch.topk(sims, k=min(2, len(sims))).values
-            scores[category] = float(top_k.mean())
-
-        return scores
+    def get_best_category(self, description: str):
+        """Retorna la mejor categoría si supera el umbral, o 'No identificada'."""
+        scores = self.classify_text(description)
+        best_cat = max(scores, key=scores.get)
+        
+        if scores[best_cat] < self.threshold:
+            return "Categoría no identificada", scores[best_cat]
+        return best_cat, scores[best_cat]
