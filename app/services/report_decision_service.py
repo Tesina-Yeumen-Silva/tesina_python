@@ -22,5 +22,5 @@ class ReportDecisionService:
             "category": None,
             "confidence": best_score,
             "valid": False,
-            "reason": "La descripción no coincide con ningún problema municipal conocido."
+            "reason": "La descripción no coincide con ningún problema conocido."
         }
