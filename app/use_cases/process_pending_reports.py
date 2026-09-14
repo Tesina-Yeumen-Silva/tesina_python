@@ -22,10 +22,16 @@ class ProcessPendingReportsUseCase:
             self.http_session = aiohttp.ClientSession(headers={'User-Agent': 'Mozilla/5.0'})
         return self.http_session
 
+    async def close(self):
+        """Cierra la sesión HTTP de forma limpia al apagar el worker."""
+        if self.http_session and not self.http_session.closed:
+            await self.http_session.close()
+
     async def _download_image(self, url: str) -> Image.Image:
         """Descarga una imagen de internet de forma 100% asíncrona."""
         session = await self._get_session()
-        async with session.get(url) as response:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with session.get(url, timeout=timeout) as response:
             if response.status != 200:
                 raise Exception(f"Error al descargar imagen. Status: {response.status}")
             img_bytes = await response.read()

@@ -50,8 +50,8 @@ async def main():
             logger.info(f"Mensaje recibido de RabbitMQ: {body}")
             
             if action == "validate_report" and report_id is not None:
-                await message.ack()
                 await use_case.execute(report_id)
+                await message.ack()
             else:
                 logger.warning(f"Acción o ID de reporte no válido recibido: {body}")
                 await message.ack()
@@ -73,6 +73,7 @@ async def main():
     except (KeyboardInterrupt, asyncio.CancelledError):
         logger.info("Deteniendo servicio de IA de forma segura (interrupción manual)...")
     finally:
+        await use_case.close()
         await rabbitmq_manager.close()
         await disconnect_db()
 

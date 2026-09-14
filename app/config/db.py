@@ -43,28 +43,22 @@ class Database:
         await engine.dispose()
         logger.info("Conexión con PostgreSQL cerrada.")
 
-    async def query_raw(self, query: str, *args):
-        sql = query
-        params = {}
+    def _convert_params(self, query: str, args: tuple) -> tuple[str, dict]:
+        """Convierte los placeholders estilo $1, $2... al formato :p1, :p2... de SQLAlchemy."""
+        sql, params = query, {}
         for idx, arg in enumerate(args):
-            placeholder = f"${idx + 1}"
-            param_key = f"p{idx + 1}"
-            sql = sql.replace(placeholder, f":{param_key}")
-            params[param_key] = arg
-            
+            sql = sql.replace(f"${idx + 1}", f":p{idx + 1}")
+            params[f"p{idx + 1}"] = arg
+        return sql, params
+
+    async def query_raw(self, query: str, *args):
+        sql, params = self._convert_params(query, args)
         async with self.session_factory() as session:
             result = await session.execute(text(sql), params)
             return [dict(row._mapping) for row in result.fetchall()]
 
     async def execute_raw(self, query: str, *args):
-        sql = query
-        params = {}
-        for idx, arg in enumerate(args):
-            placeholder = f"${idx + 1}"
-            param_key = f"p{idx + 1}"
-            sql = sql.replace(placeholder, f":{param_key}")
-            params[param_key] = arg
-            
+        sql, params = self._convert_params(query, args)
         async with self.session_factory() as session:
             async with session.begin():
                 await session.execute(text(sql), params)

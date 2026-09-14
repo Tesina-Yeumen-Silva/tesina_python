@@ -141,7 +141,11 @@ class CategoryClassifierService:
         return scores
 
     def get_best_category(self, description: str):
-        """Retorna la mejor categoría si supera el umbral, o 'No identificada'."""
+        """
+        Retorna la mejor categoría si supera el umbral, o 'No identificada'.
+        Método de utilidad para pruebas standalone. En el pipeline principal
+        se usa classify_text() junto a ReportDecisionService.
+        """
         scores = self.classify_text(description)
         best_cat = max(scores, key=scores.get)
         
