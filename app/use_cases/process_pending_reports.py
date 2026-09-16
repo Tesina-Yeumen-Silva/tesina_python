@@ -75,21 +75,33 @@ class ProcessPendingReportsUseCase:
 
             # 5. Fusión de decisiones (Texto vs Imagen)
             categoria_ia = None
-            observacion_final = "Validado automáticamente por el motor de IA."
+            motivo_decision = None
 
             if text_decision["valid"]:
                 categoria_ia = text_decision["category"]
+                motivo_decision = "descripción del incidente"
                 logger.info(f"TEXTO GANADOR ({text_decision['confidence']:.2f}): {categoria_ia}")
             else:
                 categoria_ia = clip_result["suggested_category"]
-                observacion_final = f"Descripción ambigua. Categoría corregida visualmente a: {categoria_ia}."
+                motivo_decision = "análisis visual de la imagen"
                 logger.info(f"IMAGEN GANADORA: Texto inválido/vacío. CLIP sugiere -> {categoria_ia}")
 
             # 6. Corregir Categoría en la Base de Datos si difiere
             id_categoria_ia = await self.repo.get_category_id_by_name(categoria_ia)
+            categoria_modificada = False
+            nombre_categoria_original = None
+
             if report['categoryId'] != id_categoria_ia:
-                logger.info(f"Corrigiendo categoría ID: {report['categoryId']} -> {id_categoria_ia}")
+                nombre_categoria_original = await self.repo.get_category_name_by_id(report['categoryId'])
+                logger.info(f"Corrigiendo categoría ID: {report['categoryId']} ({nombre_categoria_original}) -> {id_categoria_ia} ({categoria_ia})")
                 await self.repo.update_report_category(report_id, id_categoria_ia)
+                categoria_modificada = True
+
+            # Formar observación de validación
+            if categoria_modificada:
+                observacion_final = f"Validado automáticamente por el motor de IA. Categoría corregida de '{nombre_categoria_original or 'Desconocida'}' a '{categoria_ia}' según {motivo_decision}."
+            else:
+                observacion_final = "Validado automáticamente por el motor de IA."
 
             # 7. Análisis Espacial de Duplicados (BallTree)
             logger.info("Buscando contexto geográfico en la base de datos...")

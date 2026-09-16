@@ -82,6 +82,11 @@ class ReportRepository:
             raise ValueError(f"La categoría '{category_name}' no existe en la base de datos.")
         return results[0]["id"]
 
+    async def get_category_name_by_id(self, category_id: int) -> str | None:
+        sql = 'SELECT name FROM "ReportCategory" WHERE id = $1 AND "deletedAt" IS NULL'
+        results = await db.query_raw(sql, category_id)
+        return results[0]["name"] if results else None
+
     async def update_report_category(self, report_id: int, category_id: int):
         sql = 'UPDATE "Report" SET "categoryId" = $2 WHERE id = $1'
         await db.execute_raw(sql, report_id, category_id)
