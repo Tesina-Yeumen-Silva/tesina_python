@@ -60,30 +60,31 @@ class ProcessPendingReportsUseCase:
             # 2. Descargar Imagen de forma asíncrona
             image = await self._download_image(image_url)
 
-            # 3. Clasificación de Imagen (CLIP) y Texto (BETO/MPNet) en paralelo
-            clip_result, text_scores = await asyncio.gather(
-                asyncio.to_thread(self.clip_service.classify_image, image),
-                asyncio.to_thread(self.text_service.classify_text, descripcion_usuario)
-            )
+            # 3. Clasificación de Imagen (CLIP) en un hilo secundario para no bloquear
+            clip_result = await asyncio.to_thread(self.clip_service.classify_image, image)
+            if not clip_result["valid"]:
+                logger.warning(f"CLIP Bloqueó la imagen: {clip_result['detail']}")
+                await self.repo.add_history_entry_and_notify(
+                    report_id, id_rechazado, REPORT_STATES["RECHAZADO"], clip_result['detail']
+                )
+                return
+
+            # 4. Clasificación Semántica de Texto (MPNet) en hilo secundario
+            text_scores = await asyncio.to_thread(self.text_service.classify_text, descripcion_usuario)
             text_decision = self.decision_service.get_best_text_category(text_scores)
 
-            # 4. Control de Validación con Soft Gating
-            if not clip_result["valid"]:
-                # Si la imagen no es real (meme/digital) o no es exterior (interior/paisaje), o si tampoco hay texto válido:
-                if clip_result["rejection_reason"] in ["not_real_photo", "not_outdoor_urban"] or not text_decision["valid"]:
-                    logger.warning(f"CLIP Bloqueó la imagen: {clip_result['detail']}")
-                    await self.repo.add_history_entry_and_notify(
-                        report_id, id_rechazado, REPORT_STATES["RECHAZADO"], clip_result['detail']
-                    )
-                    return
-                else:
-                    logger.info("Soft Gating activado: Imagen de calle exterior sin daño obvio, pero validada por descripción del usuario.")
+            # 5. Fusión de decisiones (Texto vs Imagen)
+            categoria_ia = None
+            motivo_decision = None
 
-            # 5. Fusión ponderada de decisiones (Texto + Imagen)
-            fusion_result = self.decision_service.fuse_decisions(text_scores, clip_result)
-            categoria_ia = fusion_result["category"]
-            motivo_decision = fusion_result["motivo"]
-            logger.info(f"DECISIÓN FUSIÓN MULTIMODAL ({categoria_ia}): {motivo_decision}")
+            if text_decision["valid"]:
+                categoria_ia = text_decision["category"]
+                motivo_decision = "descripción del incidente"
+                logger.info(f"TEXTO GANADOR ({text_decision['confidence']:.2f}): {categoria_ia}")
+            else:
+                categoria_ia = clip_result["suggested_category"]
+                motivo_decision = "análisis visual de la imagen"
+                logger.info(f"IMAGEN GANADORA: Texto inválido/vacío. CLIP sugiere -> {categoria_ia}")
 
             # 6. Corregir Categoría en la Base de Datos si difiere
             id_categoria_ia = await self.repo.get_category_id_by_name(categoria_ia)

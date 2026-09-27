@@ -25,37 +25,37 @@ class ClipService:
             "an indoor scene, a person, a pet, food or a natural landscape",
         ]
         self.problem_labels = [
-            "a roadside concrete ditch, canal or irrigation ditch with stagnant water, mud and leaves beside the sidewalk", # Acequias y Drenajes
-            "a broken streetlight, dark lamp post or fallen electric utility pole", # Alumbrado Público
-            "a fallen tree, heavy fallen branches or dangerous tree trunk blocking the road", # Arbolado Público
+            "a blocked or flooded drainage ditch or canal on the street",       # Acequias y Drenajes
+            "a broken or unlit streetlight or fallen electric pole",             # Alumbrado Público
+            "a fallen tree, dangerous branches or roots lifting the sidewalk",   # Arbolado Público
             "a pothole, damaged pavement or broken road surface",                # Baches y Pavimentación
             "garbage, waste, rubble or trash accumulated on the street",         # Limpieza y Residuos
             "a damaged bench, broken playground or neglected public park",       # Plazas y Parques
-            "a broken traffic light with traffic signal heads or fallen road sign", # Semáforos y Señalización
-            "a broken sidewalk, missing tiles, roots lifting the pavement or damaged curb ramp", # Veredas y Accesibilidad
-            "a burst underground water pipe, clean water jet or overflowing round metal sewer manhole on the street", # Agua y Cloacas
+            "a broken traffic light, fallen road sign or faded road markings",   # Semáforos y Señalización
+            "a broken sidewalk, missing tiles or blocked pedestrian access",     # Veredas y Accesibilidad
+            "a water leak, broken pipe or overflowing sewer on the street",     # Agua y Cloacas
             "a normal street or public space in good condition with no issues",  # descarte
             "an unrelated scene with no urban infrastructure problems visible",  # descarte
         ]
         self.label_to_category = {
-            "a roadside concrete ditch, canal or irrigation ditch with stagnant water, mud and leaves beside the sidewalk": "Acequias y Drenajes",
-            "a broken streetlight, dark lamp post or fallen electric utility pole": "Alumbrado Público",
-            "a fallen tree, heavy fallen branches or dangerous tree trunk blocking the road": "Arbolado Público",
+            "a blocked or flooded drainage ditch or canal on the street":       "Acequias y Drenajes",
+            "a broken or unlit streetlight or fallen electric pole":             "Alumbrado Público",
+            "a fallen tree, dangerous branches or roots lifting the sidewalk":   "Arbolado Público",
             "a pothole, damaged pavement or broken road surface":                "Baches y Pavimentación",
             "garbage, waste, rubble or trash accumulated on the street":         "Limpieza y Residuos",
             "a damaged bench, broken playground or neglected public park":       "Plazas y Parques",
-            "a broken traffic light with traffic signal heads or fallen road sign": "Semáforos y Señalización",
-            "a broken sidewalk, missing tiles, roots lifting the pavement or damaged curb ramp": "Veredas y Accesibilidad",
-            "a burst underground water pipe, clean water jet or overflowing round metal sewer manhole on the street": "Agua y Cloacas",
+            "a broken traffic light, fallen road sign or faded road markings":   "Semáforos y Señalización",
+            "a broken sidewalk, missing tiles or blocked pedestrian access":     "Veredas y Accesibilidad",
+            "a water leak, broken pipe or overflowing sewer on the street":     "Agua y Cloacas",
         }
         self.no_problem_labels = {
             "a normal street or public space in good condition with no issues",
             "an unrelated scene with no urban infrastructure problems visible",
         }
 
-        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.55))
-        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD",    0.50))
-        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD",    0.32))
+        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.65))
+        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD",    0.60))
+        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD",    0.40))
 
         self._real_photo_text = self._tokenize_labels(self.real_photo_labels)
         self._outdoor_text    = self._tokenize_labels(self.outdoor_labels)
@@ -116,12 +116,7 @@ class ClipService:
                     "valid": False,
                     "rejection_reason": "no_problem_detected",
                     "detail": "No se detectó un problema de infraestructura urbana claro.",
-                    "suggested_category": self.label_to_category.get(best_label),
-                    "confidence": best_score,
-                    "scores": {
-                        self.label_to_category.get(k, k): v
-                        for k, v in problem_scores.items()
-                    },
+                    "suggested_category": None,
                 }
 
             return {
@@ -158,11 +153,6 @@ class ClipService:
 
         with torch.no_grad():
             image_features = self.model.get_image_features(**inputs)
-            
-        if hasattr(image_features, 'image_embeds'):
-            image_features = image_features.image_embeds
-        elif not isinstance(image_features, torch.Tensor):
-            image_features = image_features[0]
 
         # Normalizar los vectores para comparar direcciones, no magnitudes
         image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
