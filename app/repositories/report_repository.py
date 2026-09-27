@@ -20,7 +20,7 @@ class ReportRepository:
                 JOIN "ReportState" rs ON rh."stateId" = rs.id
                 WHERE rs."deletedAt" IS NULL
             )
-            SELECT r.id, r.address, r.latitude, r.longitude, r.description, r."imageUrl", r."categoryId", r."userId"
+            SELECT r.id, r.address, ST_Y(r.location::geometry) AS latitude, ST_X(r.location::geometry) AS longitude, r.description, r."imageUrl", r."categoryId", r."userId"
             FROM "Report" r
             JOIN UltimoEstado ue ON r.id = ue."reportId"
             WHERE ue.rn = 1 
@@ -34,7 +34,7 @@ class ReportRepository:
         Busca un reporte específico por su ID.
         """
         sql_query = """
-            SELECT id, address, latitude, longitude, description, "imageUrl", "categoryId", "userId"
+            SELECT id, address, ST_Y(location::geometry) AS latitude, ST_X(location::geometry) AS longitude, description, "imageUrl", "categoryId", "userId"
             FROM "Report"
             WHERE id = $1 AND "deletedAt" IS NULL
         """
@@ -56,7 +56,7 @@ class ReportRepository:
                 JOIN "ReportState" rs ON rh."stateId" = rs.id
                 WHERE rs."deletedAt" IS NULL
             )
-            SELECT r.id, r.latitude, r.longitude, r."imageUrl" 
+            SELECT r.id, ST_Y(r.location::geometry) AS latitude, ST_X(r.location::geometry) AS longitude, r."imageUrl" 
             FROM "Report" r
             JOIN UltimoEstado ue ON r.id = ue."reportId"
             WHERE r."categoryId" = $1
