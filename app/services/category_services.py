@@ -128,21 +128,26 @@ class CategoryClassifierService:
     def normalize_text(self, text: str) -> str:
         """
         Normaliza el texto corrigiendo errores comunes y eliminando ruido.
+        (Versión corregida con colapso al final).
         """
         import re
-        
         if not text:
             return ""
-            
-        text = text.lower()
-        
-        # Eliminar emojis y caracteres especiales, dejando puntuación básica
-        text = re.compile('[\U00010000-\U0010ffff]', flags=re.UNICODE).sub(r'', text)
-        text = re.sub(r'[^\w\s\.,!¡?¿-]', ' ', text)
-        
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
+        t = str(text).lower()
+        t = re.compile('[\U00010000-\U0010ffff]', flags=re.UNICODE).sub(r'', t)
+        t = re.sub(r'[^\w\s\.,!¿?¡-]', ' ', t)
+        reemplazos = [
+            (r'\bq\b', 'que'), (r'\bx\b', 'por'), (r'\bd\b', 'de'),
+            (r'\b(tb|tbn)\b', 'también'), (r'\b(xq|xque)\b', 'porque'),
+            (r'\b(vachhe|bacheazo|vache)\b', 'bache'), (r'\b(crter)\b', 'cráter'),
+            (r'\balluda\b', 'ayuda'), (r'\b(zemaforo|semaforo)\b', 'semáforo'),
+            (r'\b(ranpa)\b', 'rampa'), (r'\b(rrt+o|rrtto|rto)\b', 'roto'),
+        ]
+        for pat, rep in reemplazos:
+            t = re.sub(pat, rep, t)
+        t = re.sub(r'([a-zA-Z])\1{2,}', r'\1', t)
+        t = re.sub(r'\s+', ' ', t).strip()
+        return t
 
     def classify_text(self, description: str) -> dict:
         """Compara la descripción con el índice y retorna los puntajes por categoría."""
@@ -172,4 +177,4 @@ class CategoryClassifierService:
         
         if scores[best_cat] < self.threshold:
             return "Categoría no identificada", scores[best_cat]
-        return best_cat, scores[best_cat]
+        return best_cat, scores[best_cat]

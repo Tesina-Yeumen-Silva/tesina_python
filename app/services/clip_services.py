@@ -91,7 +91,7 @@ class ClipService:
 
             # Gate 1: NSFW
             nsfw_probs = get_probs(self._nsfw_features, self.nsfw_labels)
-            if nsfw_probs[self.nsfw_labels[0]] > 0.35:
+            if nsfw_probs[self.nsfw_labels[0]] > 0.40:
                 return {
                     "valid": False,
                     "rejection_reason": "inappropriate_content",
@@ -125,7 +125,7 @@ class ClipService:
             # Gate 4: tipo de problema
             problem_probs = get_probs(self._problem_features, self.problem_labels)
             
-            if problem_probs.get(self.problem_labels[9], 0) > 0.35 or problem_probs.get(self.problem_labels[10], 0) > 0.35:
+            if problem_probs.get(self.problem_labels[9], 0) > 0.40 or problem_probs.get(self.problem_labels[10], 0) > 0.40:
                 return {
                     "valid": False,
                     "rejection_reason": "explicitly_no_problem",
