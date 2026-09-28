@@ -125,9 +125,30 @@ class CategoryClassifierService:
             
         self.corpus_embeddings = torch.cat(self.corpus_embeddings)
 
+    def normalize_text(self, text: str) -> str:
+        """
+        Normaliza el texto corrigiendo errores comunes y eliminando ruido.
+        """
+        import re
+        
+        if not text:
+            return ""
+            
+        text = text.lower()
+        
+        # Eliminar emojis y caracteres especiales, dejando puntuación básica
+        text = re.compile('[\U00010000-\U0010ffff]', flags=re.UNICODE).sub(r'', text)
+        text = re.sub(r'[^\w\s\.,!¡?¿-]', ' ', text)
+        
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+
     def classify_text(self, description: str) -> dict:
         """Compara la descripción con el índice y retorna los puntajes por categoría."""
-        query_embedding = self.model.encode(description, convert_to_tensor=True, normalize_embeddings=True)
+        normalized_desc = self.normalize_text(description)
+        
+        query_embedding = self.model.encode(normalized_desc, convert_to_tensor=True, normalize_embeddings=True)
         
         hits = util.semantic_search(query_embedding, self.corpus_embeddings, top_k=10)[0]
         

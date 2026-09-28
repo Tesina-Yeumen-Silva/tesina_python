@@ -45,10 +45,11 @@ class ProcessPendingReportsUseCase:
             return
 
         # Obtener IDs de estados comunes de forma asíncrona
-        id_rechazado, id_validado, id_duplicado = await asyncio.gather(
-            self.repo.get_state_id_by_name(REPORT_STATES["RECHAZADO"]),
-            self.repo.get_state_id_by_name(REPORT_STATES["VALIDADO"]),
-            self.repo.get_state_id_by_name(REPORT_STATES["DUPLICADO"])
+        id_rechazado, id_validado, id_duplicado, id_pendiente = await asyncio.gather(
+            self.repo.get_state_id_by_name(REPORT_STATES.get("RECHAZADO", "RECHAZADO")),
+            self.repo.get_state_id_by_name(REPORT_STATES.get("VALIDADO", "VALIDADO")),
+            self.repo.get_state_id_by_name(REPORT_STATES.get("DUPLICADO", "DUPLICADO")),
+            self.repo.get_state_id_by_name(REPORT_STATES.get("PENDIENTE", "PENDIENTE"))
         )
 
         image_url = report['imageUrl']
@@ -60,93 +61,91 @@ class ProcessPendingReportsUseCase:
             # 2. Descargar Imagen de forma asíncrona
             image = await self._download_image(image_url)
 
-            # 3. Clasificación de Imagen (CLIP) en un hilo secundario para no bloquear
-            clip_result = await asyncio.to_thread(self.clip_service.classify_image, image)
-            if not clip_result["valid"]:
-                logger.warning(f"CLIP Bloqueó la imagen: {clip_result['detail']}")
-                await self.repo.add_history_entry_and_notify(
-                    report_id, id_rechazado, REPORT_STATES["RECHAZADO"], clip_result['detail']
-                )
-                return
-
-            # 4. Clasificación Semántica de Texto (MPNet) en hilo secundario
-            text_scores = await asyncio.to_thread(self.text_service.classify_text, descripcion_usuario)
+            # 3. Clasificación de Imagen (CLIP) y Texto (BETO/MPNet) en paralelo
+            clip_result, text_scores = await asyncio.gather(
+                asyncio.to_thread(self.clip_service.classify_image, image),
+                asyncio.to_thread(self.text_service.classify_text, descripcion_usuario)
+            )
             text_decision = self.decision_service.get_best_text_category(text_scores)
 
-            # 5. Fusión de decisiones (Texto vs Imagen)
-            categoria_ia = None
-            motivo_decision = None
+            # 4. Control de Validación con Soft Gating
+            if not clip_result.get("valid", False):
+                if clip_result.get("rejection_reason") in ["not_real_photo", "not_outdoor_urban", "inappropriate_content", "explicitly_no_problem"] or not text_decision.get("valid", False):
+                    logger.warning(f"CLIP Bloqueó la imagen: {clip_result.get('detail')}")
+                    await self.repo.add_history_entry_and_notify(
+                        report_id, id_rechazado, REPORT_STATES.get("RECHAZADO", "RECHAZADO"), clip_result.get('detail', 'Rechazado')
+                    )
+                    return
+                else:
+                    logger.info("Soft Gating activado: Imagen ambigua rescatada por validación textual.")
 
-            if text_decision["valid"]:
-                categoria_ia = text_decision["category"]
-                motivo_decision = "descripción del incidente"
-                logger.info(f"TEXTO GANADOR ({text_decision['confidence']:.2f}): {categoria_ia}")
-            else:
-                categoria_ia = clip_result["suggested_category"]
-                motivo_decision = "análisis visual de la imagen"
-                logger.info(f"IMAGEN GANADORA: Texto inválido/vacío. CLIP sugiere -> {categoria_ia}")
+            # 5. Fusión ponderada de decisiones (Texto + Imagen)
+            fusion_result = self.decision_service.fuse_decisions(text_scores, clip_result)
+            categoria_ia = fusion_result["category"]
+            motivo_decision = fusion_result["motivo"]
+            logger.info(f"DECISIÓN FUSIÓN MULTIMODAL ({categoria_ia}): {motivo_decision}")
 
-            # 6. Corregir Categoría en la Base de Datos si difiere
-            id_categoria_ia = await self.repo.get_category_id_by_name(categoria_ia)
-            categoria_modificada = False
-            nombre_categoria_original = None
+                # 6. Corregir Categora en la Base de Datos si difiere
+                id_categoria_ia = await self.repo.get_category_id_by_name(categoria_ia)
+                categoria_modificada = False
+                nombre_categoria_original = None
 
-            if report['categoryId'] != id_categoria_ia:
-                nombre_categoria_original = await self.repo.get_category_name_by_id(report['categoryId'])
-                logger.info(f"Corrigiendo categoría ID: {report['categoryId']} ({nombre_categoria_original}) -> {id_categoria_ia} ({categoria_ia})")
-                await self.repo.update_report_category(report_id, id_categoria_ia)
-                categoria_modificada = True
+                if report['categoryId'] != id_categoria_ia:
+                    nombre_categoria_original = await self.repo.get_category_name_by_id(report['categoryId'])
+                    logger.info(f"Corrigiendo categoría ID: {report['categoryId']} ({nombre_categoria_original}) -> {id_categoria_ia} ({categoria_ia})")
+                    await self.repo.update_report_category(report_id, id_categoria_ia)
+                    categoria_modificada = True
 
-            # Formar observación de validación
-            if categoria_modificada:
-                observacion_final = f"Validado automáticamente por el motor de IA. Categoría corregida de '{nombre_categoria_original or 'Desconocida'}' a '{categoria_ia}' según {motivo_decision}."
-            else:
-                observacion_final = "Validado automáticamente por el motor de IA."
+                # Formar observación de validación
+                if categoria_modificada:
+                    observacion_final = f"Validado automáticamente por el motor de IA. Categora corregida de '{nombre_categoria_original or 'Desconocida'}' a '{categoria_ia}' según {motivo_decision}."
+                else:
+                    observacion_final = f"Validado automáticamente por el motor de IA. ({motivo_decision})"
 
-            # 7. Análisis Espacial de Duplicados (BallTree)
-            logger.info("Buscando contexto geográfico en la base de datos...")
-            historical_reports = await self.repo.get_recent_reports_by_category(
-                category_id=id_categoria_ia, exclude_report_id=report_id, days=15
-            )
+                # 7. Análisis Espacial de Duplicados (BallTree)
+                logger.info("Buscando contexto geográfico en la base de datos...")
+                historical_reports = await self.repo.get_recent_reports_by_category(
+                    category_id=id_categoria_ia, exclude_report_id=report_id, days=15
+                )
 
-            # Verificación por vecindad geográfica
-            es_duplicado_geografico = self.clustering_service.is_duplicate(report, historical_reports)
-            es_duplicado_real = False
-            
-            if es_duplicado_geografico:
-                logger.info("Cercanía detectada. Iniciando peritaje visual iterativo...")
+                # Verificación por vecindad geográfica
+                es_duplicado_geografico = self.clustering_service.is_duplicate(report, historical_reports)
+                es_duplicado_real = False
                 
-                for reporte_conflicto in historical_reports:
-                    try:
-                        image_hist = await self._download_image(reporte_conflicto['imageUrl'])
-                        
-                        # Comparación visual en hilo secundario
-                        similitud = await asyncio.to_thread(
-                            self.clip_service.compare_images, image, image_hist
-                        )
-                        logger.info(f"Similitud con reporte #{reporte_conflicto['id']}: {similitud:.2f}")
-                        
-                        if similitud >= 0.75:
-                            logger.warning(f"CONFIRMADO: Duplicado real con reporte #{reporte_conflicto['id']}.")
-                            es_duplicado_real = True
-                            observacion_final = f"Reporte duplicado. (Cercanía espacial + Similitud visual con #{reporte_conflicto['id']}: {similitud*100:.1f}%)."
-                            break 
+                if es_duplicado_geografico:
+                    logger.info("Cercanía detectada. Iniciando peritaje visual iterativo...")
+                    
+                    for reporte_conflicto in historical_reports:
+                        try:
+                            image_hist = await self._download_image(reporte_conflicto['imageUrl'])
                             
-                    except Exception as e:
-                        logger.warning(f"Error al comparar con reporte #{reporte_conflicto['id']}: {e}")
-                        continue 
+                            # Comparación visual en hilo secundario
+                            similitud = await asyncio.to_thread(
+                                self.clip_service.compare_images, image, image_hist
+                            )
+                            logger.info(f"Similitud con reporte #{reporte_conflicto['id']}: {similitud:.2f}")
+                            
+                            if similitud >= 0.75:
+                                logger.warning(f"CONFIRMADO: Duplicado real con reporte #{reporte_conflicto['id']}.")
+                                es_duplicado_real = True
+                                observacion_final = f"Reporte duplicado. (Cercanía espacial + Similitud visual con #{reporte_conflicto['id']}: {similitud*100:.1f}%)."
+                                break 
+                                
+                        except Exception as e:
+                            logger.warning(f"Error al comparar con reporte #{reporte_conflicto['id']}: {e}")
+                            continue 
 
-            # 8. Guardar Evento en el historial y Notificar
-            if es_duplicado_real:
-                await self.repo.add_history_entry_and_notify(
-                    report_id, id_duplicado, REPORT_STATES["DUPLICADO"], observacion_final
-                )
-                logger.warning("Guardado como DUPLICADO")
-            else:
-                await self.repo.add_history_entry_and_notify(
-                    report_id, id_validado, REPORT_STATES["VALIDADO"], observacion_final
-                )
-                logger.info("Guardado como VALIDADO")
+                # 8. Guardar Evento en el historial y Notificar
+                if es_duplicado_real:
+                    await self.repo.add_history_entry_and_notify(
+                        report_id, id_duplicado, REPORT_STATES.get("DUPLICADO", "DUPLICADO"), observacion_final
+                    )
+                    logger.warning("Guardado como DUPLICADO")
+                else:
+                    await self.repo.add_history_entry_and_notify(
+                        report_id, id_validado, REPORT_STATES.get("VALIDADO", "VALIDADO"), observacion_final
+                    )
+                    logger.info("Guardado como VALIDADO")
 
         except Exception as item_error:
             logger.error(f"Error al procesar el reporte #{report_id}: {item_error}", exc_info=True)

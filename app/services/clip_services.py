@@ -16,6 +16,10 @@ class ClipService:
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
+        self.nsfw_labels = [
+            "explicitly inappropriate, offensive, adult, or unsafe content",
+            "safe, normal, everyday content",
+        ]
         self.real_photo_labels = [
             "a real photograph taken with a camera outdoors",
             "a digital image, meme, screenshot, cartoon, drawing or AI generated image",
@@ -53,61 +57,84 @@ class ClipService:
             "an unrelated scene with no urban infrastructure problems visible",
         }
 
-        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.65))
-        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD",    0.60))
-        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD",    0.40))
+        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.55))
+        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD", 0.50))
+        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD", 0.32))
 
-        self._real_photo_text = self._tokenize_labels(self.real_photo_labels)
-        self._outdoor_text    = self._tokenize_labels(self.outdoor_labels)
-        self._problem_text    = self._tokenize_labels(self.problem_labels)
+        self._nsfw_features       = self._precompute_text_features(self.nsfw_labels)
+        self._real_photo_features = self._precompute_text_features(self.real_photo_labels)
+        self._outdoor_features    = self._precompute_text_features(self.outdoor_labels)
+        self._problem_features    = self._precompute_text_features(self.problem_labels)
 
-    def _tokenize_labels(self, labels: list[str]) -> dict:
-        """Tokeniza una lista de etiquetas y mueve los tensores al device."""
+    def _precompute_text_features(self, labels: list[str]) -> torch.Tensor:
+        """Tokeniza y precomputa características de texto normalizadas."""
         inputs = self.processor(text=labels, return_tensors="pt", padding=True)
-        return {k: v.to(self.device) for k, v in inputs.items()}
-
-    def _get_probs(self, image: Image.Image, labels: list[str], precomputed_text: dict) -> dict:
-        """
-        Calcula las probabilidades de cada etiqueta para una imagen dada.
-        Reutiliza los tensores de texto pre-tokenizados para mayor eficiencia.
-        """
-        image_inputs = self.processor(images=image, return_tensors="pt")
-        image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
-
-        inputs = {**image_inputs, **precomputed_text}
-
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
-            outputs = self.model(**inputs)
-
-        probs = outputs.logits_per_image.softmax(dim=1)[0]
-        return dict(zip(labels, probs.tolist()))
+            text_features = self.model.get_text_features(**inputs)
+        return text_features / text_features.norm(p=2, dim=-1, keepdim=True)
 
     def classify_image(self, image: Image.Image) -> dict:
         try:
-            # Filtro 1: foto real
-            real_probs = self._get_probs(image, self.real_photo_labels, self._real_photo_text)
+            image_inputs = self.processor(images=image, return_tensors="pt")
+            image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
+
+            with torch.no_grad():
+                image_features = self.model.get_image_features(**image_inputs)
+                image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
+                logit_scale = self.model.logit_scale.exp()
+
+            def get_probs(text_features, labels):
+                logits = logit_scale * image_features @ text_features.T
+                probs = logits.softmax(dim=1)[0]
+                return dict(zip(labels, probs.tolist()))
+
+            # Gate 1: NSFW
+            nsfw_probs = get_probs(self._nsfw_features, self.nsfw_labels)
+            if nsfw_probs[self.nsfw_labels[0]] > 0.35:
+                return {
+                    "valid": False,
+                    "rejection_reason": "inappropriate_content",
+                    "detail": "Contenido explícitamente inapropiado, ofensivo o inseguro.",
+                    "suggested_category": None,
+                    "confidence": 0
+                }
+
+            # Gate 2: foto real
+            real_probs = get_probs(self._real_photo_features, self.real_photo_labels)
             if real_probs[self.real_photo_labels[0]] < self.REAL_PHOTO_THRESHOLD:
                 return {
                     "valid": False,
                     "rejection_reason": "not_real_photo",
                     "detail": "La imagen parece ser un meme, captura de pantalla o imagen generada.",
                     "suggested_category": None,
+                    "confidence": 0
                 }
 
-            # Filtro 2: exterior urbano
-            outdoor_probs = self._get_probs(image, self.outdoor_labels, self._outdoor_text)
+            # Gate 3: exterior urbano
+            outdoor_probs = get_probs(self._outdoor_features, self.outdoor_labels)
             if outdoor_probs[self.outdoor_labels[0]] < self.OUTDOOR_THRESHOLD:
                 return {
                     "valid": False,
                     "rejection_reason": "not_outdoor_urban",
                     "detail": "La imagen no muestra un espacio urbano exterior.",
                     "suggested_category": None,
+                    "confidence": 0
                 }
 
-            # Filtro 3: tipo de problema + categoría sugerida
-            problem_probs = self._get_probs(image, self.problem_labels, self._problem_text)
+            # Gate 4: tipo de problema
+            problem_probs = get_probs(self._problem_features, self.problem_labels)
+            
+            if problem_probs.get(self.problem_labels[9], 0) > 0.35 or problem_probs.get(self.problem_labels[10], 0) > 0.35:
+                return {
+                    "valid": False,
+                    "rejection_reason": "explicitly_no_problem",
+                    "detail": "La imagen muestra explícitamente que no hay problemas o no tiene relación.",
+                    "suggested_category": None,
+                    "confidence": 0
+                }
+                
             problem_scores = {k: v for k, v in problem_probs.items() if k not in self.no_problem_labels}
-
             best_label = max(problem_scores, key=problem_scores.get)
             best_score = problem_scores[best_label]
 
@@ -117,6 +144,7 @@ class ClipService:
                     "rejection_reason": "no_problem_detected",
                     "detail": "No se detectó un problema de infraestructura urbana claro.",
                     "suggested_category": None,
+                    "confidence": 0
                 }
 
             return {
@@ -124,11 +152,7 @@ class ClipService:
                 "rejection_reason": None,
                 "detail": "Imagen válida con problema urbano detectable.",
                 "suggested_category": self.label_to_category[best_label],
-                "confidence": best_score,
-                "scores": {
-                    self.label_to_category.get(k, k): v
-                    for k, v in problem_scores.items()
-                },
+                "confidence": best_score
             }
 
         except Exception as e:
@@ -138,6 +162,7 @@ class ClipService:
                 "rejection_reason": "processing_error",
                 "detail": "Error interno al procesar la imagen.",
                 "suggested_category": None,
+                "confidence": 0
             }
 
     def compare_images(self, image1: Image.Image, image2: Image.Image) -> float:
