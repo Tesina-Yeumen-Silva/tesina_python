@@ -1,62 +1,53 @@
-# Motor de IA — Mendoza Reporta
+# Mendoza Reporta - AI Worker (Python)
 
-Worker asíncrono que procesa reportes ciudadanos con IA (CLIP + MPNet) consumiendo mensajes de RabbitMQ.
+Este repositorio contiene el subsistema de Inteligencia Artificial de **Mendoza Reporta**. Actúa como un worker asíncrono diseñado para auditar, clasificar y validar automáticamente los reportes urbanos generados por los ciudadanos.
 
-## Arquitectura
+## 🧠 Arquitectura Multimodal y Modelos
 
-```
-worker.py                    ← Punto de entrada. Consume la cola RabbitMQ.
-app/
-├── config/
-│   ├── db.py                ← Conexión async a PostgreSQL (SQLAlchemy + asyncpg)
-│   ├── rabbitmq.py          ← Conexión robusta a RabbitMQ (aio-pika)
-│   └── logger.py            ← Logger con rotación de archivos
-├── repositories/
-│   └── report_repository.py ← Consultas SQL sobre los reportes
-├── services/
-│   ├── clip_services.py     ← Clasificación y comparación de imágenes (CLIP)
-│   ├── category_services.py ← Clasificación semántica de texto (MPNet)
-│   ├── clustering_service.py← Detección de duplicados geográficos (BallTree)
-│   └── report_decision_service.py ← Fusión de decisiones texto/imagen
-└── use_cases/
-    └── process_pending_reports.py ← Orquestador del pipeline de IA
-```
+El worker implementa un pipeline de validación utilizando dos aproximaciones en paralelo, para luego aplicar un motor de decisión unificado (Soft Gating y Fusión Ponderada).
 
-## Flujo de procesamiento
+1. **Modelo de Visión (OpenAI CLIP ViT-B/32)**:
+   - Extrae el vector de características de la imagen reportada.
+   - Analiza si es una fotografía real y si pertenece a un entorno urbano exterior.
+   - Clasifica el tipo de incidente visible (e.g. Baches, Arbolado, Acequias).
 
-1. RabbitMQ entrega un mensaje con `{ "action": "validate_report", "reportId": N }`
-2. Se descarga la imagen del reporte
-3. **CLIP** verifica que sea foto real → exterior urbano → problema detectado
-4. **MPNet** clasifica semánticamente la descripción del usuario
-5. Se fusionan ambas decisiones para asignar la categoría final
-6. **BallTree** detecta si hay reportes similares en un radio de 40m (últimos 15 días)
-7. Si hay cercanía, CLIP compara visualmente las imágenes (umbral: 75% similitud)
-8. El resultado (`Validado` / `Rechazado` / `Duplicado`) se guarda en DB y se notifica por RabbitMQ
+2. **Modelo de Texto (`hiiamsid/sentence_similarity_spanish_es` / MPNet-BETO)**:
+   - Transforma la descripción textual del ciudadano en embeddings.
+   - Mide la similitud de coseno contra un índice semántico estático para identificar la categoría de infraestructura urbana afectada.
 
-## Variables de entorno
+3. **Clustering y Control Espacial (`BallTree`)**:
+   - Detecta duplicidad analizando la distancia geoespacial entre reportes recientes de la misma categoría. En caso de cercanía, realiza una verificación de similitud visual directa (peritaje iterativo).
 
-| Variable | Descripción | Default |
-|---|---|---|
-| `DATABASE_URL` | URL de PostgreSQL | *(requerida)* |
-| `RABBITMQ_URL` | URL de RabbitMQ | `amqp://admin:admin123@localhost` |
-| `RABBITMQ_QUEUE_VALIDATE` | Cola de entrada | `reports.validate` |
-| `RABBITMQ_QUEUE_RESULTS` | Cola de salida | `reports.results` |
-| `CLIP_REAL_PHOTO_THRESHOLD` | Umbral foto real | `0.65` |
-| `CLIP_OUTDOOR_THRESHOLD` | Umbral exterior urbano | `0.60` |
-| `CLIP_PROBLEM_THRESHOLD` | Umbral problema detectado | `0.40` |
+## 📋 Requisitos Previos
 
-## Levantar con Docker
+- **Python** 3.10 o superior.
+- **Base de Datos**: Conexión a la instancia principal PostgreSQL del ecosistema.
+- Hardware: Aunque se ejecuta eficientemente en CPU gracias a las versiones base de los modelos, el soporte CUDA se activa automáticamente si está disponible en el entorno.
 
-```bash
-docker build -t mendoza-reporta-ia .
-docker run --env-file .env mendoza-reporta-ia
-```
+## ⚙️ Configuración del Entorno
 
-## Desarrollo local
+1. Copiar el archivo de variables de entorno:
+   ```bash
+   cp .env.example .env
+   ```
+2. Completar la variable `DATABASE_URL` para permitir la lectura y actualización de los reportes. Opcionalmente, se pueden ajustar los umbrales de validación (`CLIP_REAL_PHOTO_THRESHOLD`, etc).
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate       # Windows
-pip install -r requirements.txt
-python worker.py
-```
+## 🛠️ Instalación y Uso Local
+
+1. Crear un entorno virtual e instalar las dependencias:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # En Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+2. Ejecutar el worker:
+   ```bash
+   python worker.py
+   ```
+
+El worker comenzará a observar la base de datos de manera periódica, descargando en paralelo las imágenes requeridas y anexando los registros de telemetría de IA de forma estructurada.
+
+## 📊 Telemetría y Logs
+
+Para entornos de auditoría o pruebas piloto, el sistema registra una traza completa de las inferencias (score de confianza, categoría corregida, consenso) en el archivo de registro `app/logs/ai_telemetry.jsonl`.
