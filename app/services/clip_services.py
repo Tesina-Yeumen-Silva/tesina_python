@@ -72,6 +72,8 @@ class ClipService:
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
             text_features = self.model.get_text_features(**inputs)
+            if not isinstance(text_features, torch.Tensor):
+                text_features = text_features[0]
         return text_features / text_features.norm(p=2, dim=-1, keepdim=True)
 
     def classify_image(self, image: Image.Image) -> dict:
@@ -81,6 +83,8 @@ class ClipService:
 
             with torch.no_grad():
                 image_features = self.model.get_image_features(**image_inputs)
+                if not isinstance(image_features, torch.Tensor):
+                    image_features = image_features[0]
                 image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
                 logit_scale = self.model.logit_scale.exp()
 
@@ -178,6 +182,8 @@ class ClipService:
 
         with torch.no_grad():
             image_features = self.model.get_image_features(**inputs)
+            if not isinstance(image_features, torch.Tensor):
+                image_features = image_features[0]
 
         # Normalizar los vectores para comparar direcciones, no magnitudes
         image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
