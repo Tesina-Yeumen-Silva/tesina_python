@@ -71,9 +71,9 @@ class ClipService:
         inputs = self.processor(text=labels, return_tensors="pt", padding=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
-            text_features = self.model.get_text_features(**inputs)
-            if not isinstance(text_features, torch.Tensor):
-                text_features = text_features[0]
+            text_outputs = self.model.text_model(**inputs)
+            pooled_output = text_outputs.pooler_output
+            text_features = self.model.text_projection(pooled_output)
         return text_features / text_features.norm(p=2, dim=-1, keepdim=True)
 
     def classify_image(self, image: Image.Image) -> dict:
@@ -82,9 +82,10 @@ class ClipService:
             image_inputs = {k: v.to(self.device) for k, v in image_inputs.items()}
 
             with torch.no_grad():
-                image_features = self.model.get_image_features(**image_inputs)
-                if not isinstance(image_features, torch.Tensor):
-                    image_features = image_features[0]
+                vision_outputs = self.model.vision_model(**image_inputs)
+                pooled_output = vision_outputs.pooler_output
+                image_features = self.model.visual_projection(pooled_output)
+                
                 image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
                 logit_scale = self.model.logit_scale.exp()
 
@@ -181,9 +182,9 @@ class ClipService:
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
-            image_features = self.model.get_image_features(**inputs)
-            if not isinstance(image_features, torch.Tensor):
-                image_features = image_features[0]
+            vision_outputs = self.model.vision_model(**inputs)
+            pooled_output = vision_outputs.pooler_output
+            image_features = self.model.visual_projection(pooled_output)
 
         # Normalizar los vectores para comparar direcciones, no magnitudes
         image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
