@@ -1,5 +1,5 @@
 # Reporte de Evaluación — Fase 5: Calibración en Producción y Casos Borde (Post-Demo)
-**Modelo:** Mendoza Reporta — Arquitectura V4 (Competencia Dinámica)
+**Modelo:** Mendoza Reporta — Arquitectura Calibración Final (Competencia Dinámica)
 
 **Contexto:** Este reporte documenta los hallazgos cualitativos y los ajustes arquitectónicos realizados tras someter el sistema a pruebas de estrés y demostraciones en vivo (escenarios *open-set*), los cuales evidenciaron las limitaciones del dataset de validación cerrado utilizado hasta la Fase 4.
 
@@ -14,7 +14,7 @@ Aunque el enfoque de la Fase 4 (fusión multimodal con umbrales estáticos rígi
 
 ---
 
-## 2. Solución Arquitectónica: Modelo V4
+## 2. Solución Arquitectónica: Modelo Calibración Final
 
 Para lograr un equilibrio que permita recuperar los reportes sutiles sin abrir la puerta a imágenes irrelevantes o maliciosas, se ajustó el pipeline de validación visual (`clip_services.py`) implementando tres mecanismos clave:
 
@@ -44,4 +44,4 @@ La implementación de la Fase 5 fue sometida a pruebas cualitativas con los caso
 
 La transición de una lógica de "umbrales estáticos fijos" hacia un enfoque de **competencia probabilística dinámica** refleja la maduración del sistema para un entorno de producción real. 
 
-Quedó evidenciado que los datasets cerrados, si bien son fundamentales para la calibración inicial, no pueden prever la infinita variabilidad de casos del mundo real (*open-set*). La arquitectura V4 soluciona esta brecha, permitiendo que el sistema sea lo suficientemente sensible para captar deterioros urbanos sutiles y, simultáneamente, lo suficientemente robusto para rechazar contenido irrelevante o vandálico.
+Quedó evidenciado que los datasets cerrados, si bien son fundamentales para la calibración inicial, no pueden prever la infinita variabilidad de casos del mundo real (*open-set*). La arquitectura Calibración Final soluciona esta brecha, permitiendo que el sistema sea lo suficientemente sensible para captar deterioros urbanos sutiles y, simultáneamente, lo suficientemente robusto para rechazar contenido irrelevante o vandálico.
