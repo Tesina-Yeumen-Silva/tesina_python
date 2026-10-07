@@ -17,7 +17,7 @@ class ClipService:
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
         self.nsfw_labels = [
-            "pornographic, explicit nudity, gore, violence, or blood",
+            "pornographic, explicit nudity, gore, violence, blood, weapons, or firearms",
             "safe, normal, everyday content",
         ]
         self.real_photo_labels = [
@@ -25,12 +25,12 @@ class ClipService:
             "a digital image, meme, screenshot, cartoon, drawing or AI generated image",
         ]
         self.outdoor_labels = [
-            "an outdoor urban street scene with roads, sidewalks, public infrastructure, or water puddles",
+            "an outdoor urban street scene, public infrastructure, road, a streetlight pole, or hanging cables against the sky",
             "an indoor scene inside a house, a close up of a person's face, a pet, or food",
         ]
         self.problem_labels = [
             "a blocked or flooded drainage ditch or canal on the street",       # Acequias y Drenajes
-            "a broken or unlit streetlight or fallen electric pole",             # Alumbrado Público
+            "a broken or unlit streetlight, fallen electric pole, or broken hanging cables",             # Alumbrado Público
             "a fallen tree, dangerous branches or roots lifting the sidewalk",   # Arbolado Público
             "a pothole, damaged pavement or broken road surface",                # Baches y Pavimentación
             "garbage, waste, rubble or trash accumulated on the street",         # Limpieza y Residuos
@@ -43,7 +43,7 @@ class ClipService:
         ]
         self.label_to_category = {
             "a blocked or flooded drainage ditch or canal on the street":       "Acequias y Drenajes",
-            "a broken or unlit streetlight or fallen electric pole":             "Alumbrado Público",
+            "a broken or unlit streetlight, fallen electric pole, or broken hanging cables":             "Alumbrado Público",
             "a fallen tree, dangerous branches or roots lifting the sidewalk":   "Arbolado Público",
             "a pothole, damaged pavement or broken road surface":                "Baches y Pavimentación",
             "garbage, waste, rubble or trash accumulated on the street":         "Limpieza y Residuos",
@@ -57,9 +57,9 @@ class ClipService:
             "an unrelated scene with no urban infrastructure problems visible",
         }
 
-        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.55))
-        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD", 0.50))
-        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD", 0.32))
+        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.30))
+        self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD", 0.25))
+        self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD", 0.15))
 
         self._nsfw_features       = self._precompute_text_features(self.nsfw_labels)
         self._real_photo_features = self._precompute_text_features(self.real_photo_labels)
@@ -96,11 +96,11 @@ class ClipService:
 
             # Gate 1: NSFW
             nsfw_probs = get_probs(self._nsfw_features, self.nsfw_labels)
-            if nsfw_probs[self.nsfw_labels[0]] > 0.40:
+            if nsfw_probs[self.nsfw_labels[0]] > 0.85:
                 return {
                     "valid": False,
                     "rejection_reason": "inappropriate_content",
-                    "detail": "Contenido explícitamente inapropiado, ofensivo o inseguro.",
+                    "detail": "[V4] Contenido bloqueado: Alta probabilidad de violencia, armas o contenido explícito.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -111,7 +111,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "not_real_photo",
-                    "detail": "La imagen parece ser un meme, captura de pantalla o imagen generada.",
+                    "detail": "[V4] La imagen parece ser un meme, captura de pantalla o imagen generada.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -122,7 +122,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "not_outdoor_urban",
-                    "detail": "La imagen no muestra un espacio urbano exterior.",
+                    "detail": "[V4] La imagen no muestra un espacio urbano exterior.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -130,11 +130,18 @@ class ClipService:
             # Gate 4: tipo de problema
             problem_probs = get_probs(self._problem_features, self.problem_labels)
             
-            if problem_probs.get(self.problem_labels[9], 0) > 0.40 or problem_probs.get(self.problem_labels[10], 0) > 0.40:
+            no_prob_max = max(problem_probs.get(self.problem_labels[9], 0), problem_probs.get(self.problem_labels[10], 0))
+            
+            problem_scores = {k: v for k, v in problem_probs.items() if k not in self.no_problem_labels}
+            best_label = max(problem_scores, key=problem_scores.get)
+            best_score = problem_scores[best_label]
+            
+            # Competencia dinámica: si se parece más a una calle normal o algo irrelevante que a un problema
+            if no_prob_max > best_score:
                 return {
                     "valid": False,
                     "rejection_reason": "explicitly_no_problem",
-                    "detail": "La imagen muestra explícitamente que no hay problemas o no tiene relación.",
+                    "detail": "[V4] La imagen se detectó como un espacio sin problemas o una escena irrelevante.",
                     "suggested_category": None,
                     "confidence": 0
                 }
