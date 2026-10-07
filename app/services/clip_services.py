@@ -17,7 +17,7 @@ class ClipService:
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
         self.nsfw_labels = [
-            "explicitly inappropriate, offensive, adult, or unsafe content",
+            "pornographic, explicit nudity, gore, violence, or blood",
             "safe, normal, everyday content",
         ]
         self.real_photo_labels = [
@@ -25,8 +25,8 @@ class ClipService:
             "a digital image, meme, screenshot, cartoon, drawing or AI generated image",
         ]
         self.outdoor_labels = [
-            "an outdoor urban street scene with roads, sidewalks or public infrastructure",
-            "an indoor scene, a person, a pet, food or a natural landscape",
+            "an outdoor urban street scene with roads, sidewalks, public infrastructure, or water puddles",
+            "an indoor scene inside a house, a close up of a person's face, a pet, or food",
         ]
         self.problem_labels = [
             "a blocked or flooded drainage ditch or canal on the street",       # Acequias y Drenajes
@@ -152,12 +152,19 @@ class ClipService:
                     "confidence": 0
                 }
 
+            mapped_scores = {}
+            for label, score in problem_scores.items():
+                cat = self.label_to_category.get(label)
+                if cat:
+                    mapped_scores[cat] = score
+
             return {
                 "valid": True,
                 "rejection_reason": None,
                 "detail": "Imagen válida con problema urbano detectable.",
                 "suggested_category": self.label_to_category[best_label],
-                "confidence": best_score
+                "confidence": best_score,
+                "scores": mapped_scores
             }
 
         except Exception as e:
