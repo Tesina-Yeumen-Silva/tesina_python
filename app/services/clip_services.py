@@ -100,7 +100,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "inappropriate_content",
-                    "detail": "[V4] Contenido bloqueado: Alta probabilidad de violencia, armas o contenido explícito.",
+                    "detail": "Contenido bloqueado: Alta probabilidad de violencia, armas o contenido explícito.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -111,7 +111,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "not_real_photo",
-                    "detail": "[V4] La imagen parece ser un meme, captura de pantalla o imagen generada.",
+                    "detail": "La imagen parece ser un meme, captura de pantalla o imagen generada.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -122,7 +122,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "not_outdoor_urban",
-                    "detail": "[V4] La imagen no muestra un espacio urbano exterior.",
+                    "detail": "La imagen no muestra un espacio urbano exterior.",
                     "suggested_category": None,
                     "confidence": 0
                 }
@@ -141,7 +141,7 @@ class ClipService:
                 return {
                     "valid": False,
                     "rejection_reason": "explicitly_no_problem",
-                    "detail": "[V4] La imagen se detectó como un espacio sin problemas o una escena irrelevante.",
+                    "detail": "La imagen se detectó como un espacio sin problemas o una escena irrelevante.",
                     "suggested_category": None,
                     "confidence": 0
                 }
