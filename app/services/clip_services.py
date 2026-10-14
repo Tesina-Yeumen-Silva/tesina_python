@@ -38,7 +38,7 @@ class ClipService:
             "a broken traffic light, fallen road sign or faded road markings",   # Semáforos y Señalización
             "a broken outdoor sidewalk, cracked street pavement, damaged public walkway or broken curbs",     # Veredas y Accesibilidad
             "a water leak, broken pipe or overflowing sewer on the street",     # Agua y Cloacas
-            "a normal street or public space in good condition with no issues",  # descarte 1
+            "a normal street, clean sidewalk, undamaged dumpster, container or public space in good condition with no damage or issues",  # descarte 1
             "an unrelated scene with no urban infrastructure problems visible",  # descarte 2
             "an indoor domestic floor, ceramic tiles inside a house, shoes, feet, or private property", # descarte 3 (interiores / pies)
             "a video game, 3D virtual environment, computer graphics, or photo of a computer monitor", # descarte 4 (videojuegos / pantallas)
