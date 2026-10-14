@@ -26,7 +26,7 @@ class ClipService:
         ]
         self.outdoor_labels = [
             "an outdoor urban street scene, public infrastructure, road, a streetlight pole, or hanging cables against the sky",
-            "an indoor scene inside a house, a close up of a person's face, a pet, or food",
+            "an indoor scene inside a house, indoor floor tiles, domestic ceramic floor, a close up of feet, shoes, socks, a pet, or food",
         ]
         self.problem_labels = [
             "a blocked or flooded drainage ditch or canal on the street",       # Acequias y Drenajes
@@ -36,10 +36,11 @@ class ClipService:
             "garbage, waste, rubble or trash accumulated on the street",         # Limpieza y Residuos
             "a damaged bench, broken playground or neglected public park",       # Plazas y Parques
             "a broken traffic light, fallen road sign or faded road markings",   # Semáforos y Señalización
-            "a broken sidewalk, missing tiles or blocked pedestrian access",     # Veredas y Accesibilidad
+            "a broken outdoor sidewalk, cracked street pavement, damaged public walkway or broken curbs",     # Veredas y Accesibilidad
             "a water leak, broken pipe or overflowing sewer on the street",     # Agua y Cloacas
-            "a normal street or public space in good condition with no issues",  # descarte
-            "an unrelated scene with no urban infrastructure problems visible",  # descarte
+            "a normal street or public space in good condition with no issues",  # descarte 1
+            "an unrelated scene with no urban infrastructure problems visible",  # descarte 2
+            "an indoor domestic floor, ceramic tiles inside a house, shoes, feet, or private property", # descarte 3 (interiores / pies)
         ]
         self.label_to_category = {
             "a blocked or flooded drainage ditch or canal on the street":       "Acequias y Drenajes",
@@ -49,12 +50,13 @@ class ClipService:
             "garbage, waste, rubble or trash accumulated on the street":         "Limpieza y Residuos",
             "a damaged bench, broken playground or neglected public park":       "Plazas y Parques",
             "a broken traffic light, fallen road sign or faded road markings":   "Semáforos y Señalización",
-            "a broken sidewalk, missing tiles or blocked pedestrian access":     "Veredas y Accesibilidad",
+            "a broken outdoor sidewalk, cracked street pavement, damaged public walkway or broken curbs":     "Veredas y Accesibilidad",
             "a water leak, broken pipe or overflowing sewer on the street":     "Agua y Cloacas",
         }
         self.no_problem_labels = {
             "a normal street or public space in good condition with no issues",
             "an unrelated scene with no urban infrastructure problems visible",
+            "an indoor domestic floor, ceramic tiles inside a house, shoes, feet, or private property",
         }
 
         self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.30))
@@ -130,13 +132,13 @@ class ClipService:
             # Gate 4: tipo de problema
             problem_probs = get_probs(self._problem_features, self.problem_labels)
             
-            no_prob_max = max(problem_probs.get(self.problem_labels[9], 0), problem_probs.get(self.problem_labels[10], 0))
+            no_prob_max = max(problem_probs.get(lbl, 0.0) for lbl in self.no_problem_labels)
             
             problem_scores = {k: v for k, v in problem_probs.items() if k not in self.no_problem_labels}
             best_label = max(problem_scores, key=problem_scores.get)
             best_score = problem_scores[best_label]
             
-            # Competencia dinámica: si se parece más a una calle normal o algo irrelevante que a un problema
+            # Competencia dinámica: si se parece más a una escena normal, interior o irrelevante que a un problema urbano
             if no_prob_max > best_score:
                 return {
                     "valid": False,
@@ -145,10 +147,6 @@ class ClipService:
                     "suggested_category": None,
                     "confidence": 0
                 }
-                
-            problem_scores = {k: v for k, v in problem_probs.items() if k not in self.no_problem_labels}
-            best_label = max(problem_scores, key=problem_scores.get)
-            best_score = problem_scores[best_label]
 
             if best_score < self.PROBLEM_THRESHOLD:
                 return {
