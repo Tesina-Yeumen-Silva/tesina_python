@@ -21,8 +21,8 @@ class ClipService:
             "safe, normal, everyday content",
         ]
         self.real_photo_labels = [
-            "a real photograph taken with a camera outdoors",
-            "a digital image, meme, screenshot, cartoon, drawing or AI generated image",
+            "a real photograph taken with a camera outdoors in the real world",
+            "a video game screenshot, 3D computer game graphics, gameplay, virtual environment, photo of a computer monitor or screen, digital image, meme, cartoon, or drawing",
         ]
         self.outdoor_labels = [
             "an outdoor urban street scene, public infrastructure, road, a streetlight pole, or hanging cables against the sky",
@@ -41,6 +41,7 @@ class ClipService:
             "a normal street or public space in good condition with no issues",  # descarte 1
             "an unrelated scene with no urban infrastructure problems visible",  # descarte 2
             "an indoor domestic floor, ceramic tiles inside a house, shoes, feet, or private property", # descarte 3 (interiores / pies)
+            "a video game, 3D virtual environment, computer graphics, or photo of a computer monitor", # descarte 4 (videojuegos / pantallas)
         ]
         self.label_to_category = {
             "a blocked or flooded drainage ditch or canal on the street":       "Acequias y Drenajes",
@@ -54,12 +55,13 @@ class ClipService:
             "a water leak, broken pipe or overflowing sewer on the street":     "Agua y Cloacas",
         }
         self.no_problem_labels = {
-            "a normal street or public space in good condition with no issues",
-            "an unrelated scene with no urban infrastructure problems visible",
-            "an indoor domestic floor, ceramic tiles inside a house, shoes, feet, or private property",
+            self.problem_labels[9],
+            self.problem_labels[10],
+            self.problem_labels[11],
+            self.problem_labels[12],
         }
 
-        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.30))
+        self.REAL_PHOTO_THRESHOLD = float(os.getenv("CLIP_REAL_PHOTO_THRESHOLD", 0.45))
         self.OUTDOOR_THRESHOLD    = float(os.getenv("CLIP_OUTDOOR_THRESHOLD", 0.25))
         self.PROBLEM_THRESHOLD    = float(os.getenv("CLIP_PROBLEM_THRESHOLD", 0.15))
 
